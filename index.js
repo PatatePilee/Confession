@@ -1,4 +1,10 @@
 require("dotenv").config();
+
+// Keep-alive pour Replit
+if (process.env.REPLIT) {
+  require("./keep-alive");
+}
+
 const {
   Client,
   GatewayIntentBits,
