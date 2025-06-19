@@ -4,9 +4,10 @@ const {
   createAudioResource,
   joinVoiceChannel,
   VoiceConnectionStatus,
+  entersState,
 } = require("@discordjs/voice");
 const { Collection } = require("discord.js");
-const play = require("play-dl");
+const ytdl = require("ytdl-core");
 const { getLogger } = require("../utils");
 
 const logger = getLogger("MusicPlayer");
@@ -58,23 +59,33 @@ class MusicPlayer {
       const player =
         this.players.get(interaction.guild.id) || createAudioPlayer();
 
-      let stream;
-      let info;
+      let url = query;
 
-      if (play.yt_validate(query) === "video") {
-        info = await play.video_info(query);
-        stream = await play.stream_from_info(info);
-      } else {
-        const searchResults = await play.search(query, { limit: 1 });
-        if (!searchResults.length) {
-          throw new Error("Aucun résultat trouvé.");
-        }
-        info = await play.video_info(searchResults[0].url);
-        stream = await play.stream_from_info(info);
+      // Si ce n'est pas une URL YouTube, on fait une recherche basique
+      if (!ytdl.validateURL(query)) {
+        // Pour une recherche simple, on peut utiliser l'API YouTube ou juste construire une URL
+        // Pour l'instant, on va juste dire à l'utilisateur d'utiliser une URL YouTube
+        throw new Error(
+          "Veuillez fournir une URL YouTube valide pour le moment."
+        );
       }
 
-      const resource = createAudioResource(stream.stream, {
-        inputType: stream.type,
+      // Vérifier que l'URL est valide
+      if (!ytdl.validateURL(url)) {
+        throw new Error("URL YouTube invalide.");
+      }
+
+      // Obtenir les informations de la vidéo
+      const info = await ytdl.getInfo(url);
+
+      // Créer le stream audio
+      const stream = ytdl(url, {
+        filter: "audioonly",
+        highWaterMark: 1 << 25,
+        quality: "highestaudio",
+      });
+
+      const resource = createAudioResource(stream, {
         inlineVolume: true,
       });
       resource.volume.setVolume(0.5);
@@ -85,9 +96,9 @@ class MusicPlayer {
       this.players.set(interaction.guild.id, player);
 
       return {
-        title: info.video_details.title,
-        duration: info.video_details.durationInSec,
-        url: info.video_details.url,
+        title: info.videoDetails.title,
+        duration: parseInt(info.videoDetails.lengthSeconds),
+        url: info.videoDetails.video_url,
       };
     } catch (error) {
       logger.error("Erreur lors de la lecture:", error);
@@ -118,7 +129,7 @@ class MusicPlayer {
 
   setVolume(guildId, volume) {
     const player = this.players.get(guildId);
-    if (player) {
+    if (player && player.state.resource && player.state.resource.volume) {
       player.state.resource.volume.setVolume(volume / 100);
     }
   }
